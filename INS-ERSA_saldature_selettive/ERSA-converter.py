@@ -22,7 +22,7 @@ def setup_logger(log_dir="logs", log_name="converter"):
     log_path.mkdir(exist_ok=True)
 
     logger = logging.getLogger(log_name)
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
 
     handler = TimedRotatingFileHandler(
         filename=log_path.joinpath(log_name + ".log"),
@@ -201,18 +201,22 @@ def convert_xml_to_csv(scr_path: Path, write_folder: Path):
             value = sample.get("value")
             params[name] = value
 
-    filename = MACHINE_NAME + "_XML_" + datetime.strptime(params["Avvio"], "%d.%m.%Y %H:%M:%S").strftime("%Y%m%d%H%M%S")
-    filename = write_folder.joinpath(filename).with_suffix(".csv")
+    # Usa il nome originale del file (senza estensione) per generare il file CSV,
+    # in questo modo è impossibile che i file si sovrascrivano a vicenda.
+    original_name = scr_path.stem
+    filename = f"{MACHINE_NAME}_XML_{original_name}.csv"
+    dest_path = write_folder.joinpath(filename)
 
-    # rinomina la chiave Avvio in Time
+    # Rinomina la chiave 'Avvio' in 'Time' in modo sicuro, mantenendo l'ordine
     params = {("Time" if k == "Avvio" else k): v for k, v in params.items()}
 
-    # scrive il file csv
-    with open(filename, 'w', newline='', encoding='utf-8') as dest:
+    # Scrive il file csv
+    with open(dest_path, 'w', newline='', encoding='utf-8') as dest:
         w = csv.DictWriter(dest, fieldnames=params.keys(), delimiter=';')
         w.writeheader()
         w.writerow(params)
-    logger.debug("Scritto file '%s' da '%s'", filename.name, scr_path.name)
+        
+    logger.debug("Scritto file '%s' da '%s'", dest_path.name, scr_path.name)
 
     return int(1)
 
@@ -259,17 +263,16 @@ def compute_trend(trend_f, write_f, lastrun):
     logger.info("Sono presenti %d nuovi file Trend", len(new_files))
 
     n = 0
-    for f in list(new_files): # Usa una copia della lista se devi rimuovere elementi
-        scr_path = PurePath.joinpath(trend_f, f)
+    for f in list(new_files):
+        # f contiene già l'intero percorso (es. history_trend\file.trend)
+        scr_path = f 
 
         try:
-            # Somma il numero di file in cui è stato spezzato l'originale
             added_files = convert_trend_to_csv(scr_path, write_f)
             n += added_files
             logger.debug("Scritti %d file da '%s'", added_files, scr_path.name)
         except Exception as e:
             logger.exception("%s", str(e))
-            # Rimuove il file dalla lista solo se fallisce
             new_files.remove(f)
     
     logger.info("Scritti %d file totali da %d originali '.trend'", n, len(new_files))
@@ -281,14 +284,15 @@ def compute_xml(xml_f, write_f, lastrun):
     logger.debug("Sono presenti %d nuovi file XML", len(new_files))
 
     n = 0
-    for f in new_files:
-        scr_path = PurePath.joinpath(xml_f, f)
+    for f in list(new_files): # Meglio usare list() se prevedi di rimuovere elementi
+        # f contiene già l'intero percorso
+        scr_path = f 
 
         try:
             n += convert_xml_to_csv(scr_path, write_f)
         except Exception as e:
             logger.exception("%s", str(e))
-            # se si genera un'eccezione nella conversione rimuovo il file dalla lista dei file convertiti
+            # se si genera un'eccezione nella conversione rimuovo il file
             new_files.remove(f)
             n -= 1
 
